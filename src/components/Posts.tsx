@@ -13,7 +13,8 @@ import {
   Box,
   Chip,
   IconButton,
-  Collapse
+  Collapse,
+  Badge
 } from '@mui/material';
 import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
 import KeyboardArrowUpIcon from '@mui/icons-material/KeyboardArrowUp';
@@ -51,16 +52,27 @@ const Row: React.FC<RowProps> = ({ post }) => {
     <>
       <TableRow sx={{ '& > *': { borderBottom: 'unset' } }} hover>
         <TableCell>
-          <IconButton
-            aria-label="expand row"
-            size="small"
-            onClick={fetchComments}
+          <Badge 
+            badgeContent={(post.answer_count || 0) + (post.comment_count || 0)} 
+            color="primary"
+            sx={{ '& .MuiBadge-badge': { right: -3, top: 13 } }}
           >
-            {open ? <KeyboardArrowUpIcon /> : <KeyboardArrowDownIcon />}
-          </IconButton>
+            <IconButton
+              aria-label="expand row"
+              size="small"
+              onClick={fetchComments}
+            >
+              {open ? <KeyboardArrowUpIcon /> : <KeyboardArrowDownIcon />}
+            </IconButton>
+          </Badge>
         </TableCell>
         <TableCell sx={{ maxWidth: 300 }}>
-          {post.title || 'Untitled'}
+          <Typography variant="body1">
+            {post.title || 'Untitled'}
+          </Typography>
+          <Typography variant="caption" color="text.secondary">
+            {post.answer_count || 0} answers • {post.comment_count || 0} comments
+          </Typography>
         </TableCell>
         <TableCell>
           {post.tagnames ? post.tagnames.split(' ').map((tag, i) => (
@@ -82,13 +94,6 @@ const Row: React.FC<RowProps> = ({ post }) => {
             }) : 'No date'
           }
         </TableCell>
-        <TableCell>
-          <Chip 
-            label={post.node_type}
-            size="small"
-            color={post.node_type === 'question' ? 'primary' : 'default'}
-          />
-        </TableCell>
         <TableCell align="right">
           {post.score || 0}
         </TableCell>
@@ -98,7 +103,7 @@ const Row: React.FC<RowProps> = ({ post }) => {
           <Collapse in={open} timeout="auto" unmountOnExit>
             <Box sx={{ margin: 1 }}>
               <Typography variant="h6" gutterBottom component="div">
-                Related Posts
+                Discussion Thread
               </Typography>
               {loading ? (
                 <Box display="flex" justifyContent="center" p={2}>
@@ -116,8 +121,18 @@ const Row: React.FC<RowProps> = ({ post }) => {
                   </TableHead>
                   <TableBody>
                     {comments.map((comment) => (
-                      <TableRow key={comment.id} hover>
-                        <TableCell sx={{ maxWidth: 400 }}>{comment.body}</TableCell>
+                      <TableRow 
+                        key={comment.id} 
+                        hover
+                        sx={{
+                          backgroundColor: comment.node_type === 'answer' ? 'action.hover' : 'inherit'
+                        }}
+                      >
+                        <TableCell sx={{ maxWidth: 400 }}>
+                          <Typography variant="body2">
+                            {comment.body}
+                          </Typography>
+                        </TableCell>
                         <TableCell>
                           <Chip 
                             label={comment.node_type}
@@ -139,7 +154,7 @@ const Row: React.FC<RowProps> = ({ post }) => {
                 </Table>
               ) : (
                 <Typography variant="body2" color="text.secondary" align="center">
-                  No related posts found
+                  No responses yet
                 </Typography>
               )}
             </Box>
@@ -165,7 +180,7 @@ export const Posts: React.FC = () => {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
       const data: ApiResponse<ForumPost[]> = await response.json();
-      console.log("Received data:", data);
+      console.log('Received posts data:', data.data); // Add this line
       setPosts(data.data);
       setTotalPages(data.totalPages);
     } catch (error) {
@@ -215,7 +230,6 @@ export const Posts: React.FC = () => {
               <TableCell sx={{ fontWeight: 'bold' }}>Title</TableCell>
               <TableCell sx={{ fontWeight: 'bold' }}>Tags</TableCell>
               <TableCell sx={{ fontWeight: 'bold' }}>Date</TableCell>
-              <TableCell sx={{ fontWeight: 'bold' }}>Type</TableCell>
               <TableCell sx={{ fontWeight: 'bold' }} align="right">Score</TableCell>
             </TableRow>
           </TableHead>

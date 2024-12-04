@@ -8,6 +8,8 @@ export interface ForumPost {
     score: number;
     parent_id?: number;
     state_string?: string;
+    answer_count: number;  // Changed from optional to required
+  comment_count: number; // Changed from optional to required
 }
 
 export interface Comment {
@@ -27,7 +29,6 @@ export interface PaginationParams {
     node_type?: string;
 }
 
-// Use generic type consistently
 export interface ApiResponse<T> {
     data: T;
     total: number;
@@ -37,4 +38,5 @@ export interface ApiResponse<T> {
 
 export interface CommentsResponse {
     comments: Comment[];
+    post: ForumPost;
 }
