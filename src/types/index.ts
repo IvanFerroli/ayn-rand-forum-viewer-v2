@@ -1,15 +1,13 @@
 export interface ForumPost {
   id: number;
   title: string;
-  tagnames: string;
   body: string;
-  node_type: string;
-  added_at: string | Date; // Keep string | Date for frontend flexibility
   score: number;
-  parent_id?: number;
-  state_string?: string;
-  answer_count: number;
+  node_type: string;
   comment_count: number;
+  answer_count: number;
+  added_at: string;
+  tags: string[];
 }
 
 export interface Comment {
@@ -36,12 +34,12 @@ export interface SortOption {
 
 // Type for sort values
 export type SortValue = 
-  | 'date_desc'
-  | 'date_asc'
+  | 'date_desc' 
+  | 'date_asc' 
+  | 'score_desc' 
+  | 'score_asc'
   | 'interactions_desc'
-  | 'interactions_asc'
-  | 'score_desc'
-  | 'score_asc';
+  | 'interactions_asc';
 
 // Updated pagination params to include new filter and sort options
 export interface PaginationParams {
@@ -74,6 +72,8 @@ export interface FilterState {
   sortBy: SortValue;
   tags: string[];
 }
+
+export type NodeType = 'all' | 'question' | 'answer' | 'comment';
 
 // Constants for the UI
 export const SORT_OPTIONS: SortOption[] = [

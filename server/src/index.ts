@@ -21,56 +21,6 @@ app.use(express.json());
 
 const port = process.env.SERVER_PORT || 5000;
 
-// Helper function with proper typing
-const buildQueryClauses = (
-  search: string,
-  nodeType: NodeType,
-  sortBy: SortByValue
-): { whereClause: string; orderByClause: string; params: any[] } => {
-  const params: any[] = [];
-  let whereClause = 'WHERE (p.state_string IS NULL OR p.state_string != "(deleted)")';
-  
-  if (nodeType && nodeType !== 'all') {
-    whereClause += ' AND p.node_type = ?';
-    params.push(nodeType);
-  } else {
-    whereClause += ' AND p.node_type = "question"';
-  }
-
-  if (search) {
-    whereClause += ` AND (
-      p.title LIKE ? OR 
-      p.body LIKE ? OR 
-      p.tagnames LIKE ?
-    )`;
-    const searchTerm = `%${search}%`;
-    params.push(searchTerm, searchTerm, searchTerm);
-  }
-
-  let orderByClause = '';
-  switch (sortBy) {
-    case 'date_asc':
-      orderByClause = 'ORDER BY p.added_at ASC';
-      break;
-    case 'interactions_desc':
-      orderByClause = 'ORDER BY (answer_count + comment_count) DESC, p.added_at DESC';
-      break;
-    case 'interactions_asc':
-      orderByClause = 'ORDER BY (answer_count + comment_count) ASC, p.added_at DESC';
-      break;
-    case 'score_desc':
-      orderByClause = 'ORDER BY p.score DESC, p.added_at DESC';
-      break;
-    case 'score_asc':
-      orderByClause = 'ORDER BY p.score ASC, p.added_at DESC';
-      break;
-    default:
-      orderByClause = 'ORDER BY p.added_at DESC';
-  }
-
-  return { whereClause, orderByClause, params };
-};
-
 app.get("/api/posts", async (req, res) => {
   try {
     const page = parseInt(String(req.query.page)) || 1;
@@ -80,67 +30,106 @@ app.get("/api/posts", async (req, res) => {
     const sortBy = (req.query.sortBy || 'date_desc') as SortByValue;
     const offset = (page - 1) * limit;
 
-    const { whereClause, orderByClause, params } = buildQueryClauses(
-      search,
-      nodeType,
-      sortBy
-    );
-
-    const [rows] = await pool.query<ForumPostRow[]>(
-      `SELECT 
+    const query = `
+      SELECT 
         p.id, 
-        p.title, 
-        p.tagnames, 
+        CASE 
+          WHEN p.node_type = 'question' THEN p.title
+          WHEN p.node_type IN ('answer', 'comment') THEN 
+            CONCAT(
+              UPPER(SUBSTRING(p.node_type, 1, 1)), LOWER(SUBSTRING(p.node_type, 2)),
+              ' to: ',
+              COALESCE((SELECT title FROM forum_posts_raw WHERE id = p.parent_id), 'Deleted Post')
+            )
+        END as title,
+        p.tagnames,
         p.body,
         p.node_type,
-        p.added_at, 
+        p.added_at,
         p.score,
-        (
-          SELECT COUNT(*) 
-          FROM forum_posts_raw answers 
-          WHERE answers.parent_id = p.id 
-            AND answers.node_type = 'answer'
-            AND (answers.state_string IS NULL OR answers.state_string != '(deleted)')
-        ) as answer_count,
-        (
-          SELECT COUNT(*) 
-          FROM forum_posts_raw comments 
-          WHERE comments.parent_id = p.id 
-            AND comments.node_type = 'comment'
-            AND (comments.state_string IS NULL OR comments.state_string != '(deleted)')
-        ) as comment_count
+        p.parent_id,
+        (SELECT COUNT(*) FROM forum_posts_raw WHERE parent_id = p.id AND node_type = 'answer' AND (state_string IS NULL OR state_string != '(deleted)')) as answer_count,
+        (SELECT COUNT(*) FROM forum_posts_raw WHERE parent_id = p.id AND node_type = 'comment' AND (state_string IS NULL OR state_string != '(deleted)')) as comment_count
       FROM forum_posts_raw p
-      ${whereClause}
-      GROUP BY p.id, p.title, p.tagnames, p.body, p.node_type, p.added_at, p.score
-      ${orderByClause}
-      LIMIT ? OFFSET ?`,
-      [...params, limit, offset]
-    );
+      WHERE 
+        (p.state_string IS NULL OR p.state_string != '(deleted)')
+        AND (
+          ? = 'all' OR 
+          p.node_type = ?
+        )
+        AND (
+          ? = '' OR
+          LOWER(p.title) LIKE LOWER(CONCAT('%', ?, '%')) OR
+          LOWER(p.body) LIKE LOWER(CONCAT('%', ?, '%')) OR
+          LOWER(p.tagnames) LIKE LOWER(CONCAT('%', ?, '%'))
+        )
+      ORDER BY 
+        CASE WHEN ? = 'date_desc' THEN p.added_at END DESC,
+        CASE WHEN ? = 'date_asc' THEN p.added_at END ASC,
+        CASE WHEN ? = 'score_desc' THEN p.score END DESC,
+        CASE WHEN ? = 'score_asc' THEN p.score END ASC,
+        CASE WHEN ? = 'interactions_desc' THEN (
+          (SELECT COUNT(*) FROM forum_posts_raw WHERE parent_id = p.id AND node_type = 'answer' AND (state_string IS NULL OR state_string != '(deleted)')) +
+          (SELECT COUNT(*) FROM forum_posts_raw WHERE parent_id = p.id AND node_type = 'comment' AND (state_string IS NULL OR state_string != '(deleted)'))
+        ) END DESC,
+        CASE WHEN ? = 'interactions_asc' THEN (
+          (SELECT COUNT(*) FROM forum_posts_raw WHERE parent_id = p.id AND node_type = 'answer' AND (state_string IS NULL OR state_string != '(deleted)')) +
+          (SELECT COUNT(*) FROM forum_posts_raw WHERE parent_id = p.id AND node_type = 'comment' AND (state_string IS NULL OR state_string != '(deleted)'))
+        ) END ASC,
+        p.added_at DESC
+      LIMIT ? OFFSET ?`;
+
+    const queryParams = [
+      nodeType, nodeType,
+      search, search, search, search,
+      sortBy, sortBy, sortBy, sortBy, sortBy, sortBy,
+      limit, offset
+    ];
+
+    const [rows] = await pool.query<ForumPostRow[]>(query, queryParams);
+
+    // Get total count for pagination
+    const countQuery = `
+      SELECT COUNT(*) as total 
+      FROM forum_posts_raw p
+      WHERE 
+        (p.state_string IS NULL OR p.state_string != '(deleted)')
+        AND (
+          ? = 'all' OR 
+          p.node_type = ?
+        )
+        AND (
+          ? = '' OR
+          LOWER(p.title) LIKE LOWER(CONCAT('%', ?, '%')) OR
+          LOWER(p.body) LIKE LOWER(CONCAT('%', ?, '%')) OR
+          LOWER(p.tagnames) LIKE LOWER(CONCAT('%', ?, '%'))
+        )`;
+
+    const countParams = [
+      nodeType, nodeType,
+      search, search, search, search
+    ];
 
     const [countResult] = await pool.query<TotalCountRow[]>(
-      `SELECT COUNT(*) as total 
-       FROM forum_posts_raw p
-       ${whereClause}`,
-      params
+      countQuery,
+      countParams
     );
 
     const total = countResult[0].total;
     const totalPages = Math.ceil(total / limit);
 
-    const formattedRows = rows.map(row => ({
-      ...row,
-      answer_count: Number(row.answer_count),
-      comment_count: Number(row.comment_count)
-    }));
-
     const response: ApiResponse<ForumPost[]> = {
-      data: formattedRows,
+      data: rows.map(row => ({
+        ...row,
+        answer_count: Number(row.answer_count || 0),
+        comment_count: Number(row.comment_count || 0)
+      })),
       total,
       page,
       totalPages,
       filters: {
         search,
-        nodeType: nodeType || 'all',
+        nodeType,
         tags: []
       },
       sort: sortBy
@@ -148,7 +137,7 @@ app.get("/api/posts", async (req, res) => {
 
     res.json(response);
   } catch (error) {
-    console.error("Detailed API Error:", error);
+    console.error("Error fetching posts:", error);
     res.status(500).json({ 
       error: "Internal server error", 
       details: error instanceof Error ? error.message : String(error)
