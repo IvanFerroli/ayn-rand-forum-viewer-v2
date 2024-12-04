@@ -1,9 +1,17 @@
-import express, { Request, Response } from "express";
+import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
 import { pool } from "./db";
-import { ForumPost, PaginationParams, ApiResponse } from "./types";
-import { RowDataPacket } from 'mysql2';
+import { 
+  ForumPost, 
+  ApiResponse, 
+  ForumPostRow, 
+  CommentRow, 
+  TotalCountRow,
+  NodeType,
+  SortByValue,
+  QueryParams 
+} from "./types";
 
 dotenv.config();
 
@@ -13,27 +21,71 @@ app.use(express.json());
 
 const port = process.env.SERVER_PORT || 5000;
 
-interface ForumPostRow extends ForumPost, RowDataPacket {}
-interface TotalCountRow extends RowDataPacket {
-  total: number;
-}
-interface CommentRow extends RowDataPacket {
-  id: number;
-  body: string;
-  node_type: string;
-  added_at: Date;
-  score: number;
-  parent_id: number;
-}
+// Helper function with proper typing
+const buildQueryClauses = (
+  search: string,
+  nodeType: NodeType,
+  sortBy: SortByValue
+): { whereClause: string; orderByClause: string; params: any[] } => {
+  const params: any[] = [];
+  let whereClause = 'WHERE (p.state_string IS NULL OR p.state_string != "(deleted)")';
+  
+  if (nodeType && nodeType !== 'all') {
+    whereClause += ' AND p.node_type = ?';
+    params.push(nodeType);
+  } else {
+    whereClause += ' AND p.node_type = "question"';
+  }
 
-// Main posts endpoint with improved query - now only returns questions with counts
-app.get("/api/posts", async (req: Request, res: Response) => {
+  if (search) {
+    whereClause += ` AND (
+      p.title LIKE ? OR 
+      p.body LIKE ? OR 
+      p.tagnames LIKE ?
+    )`;
+    const searchTerm = `%${search}%`;
+    params.push(searchTerm, searchTerm, searchTerm);
+  }
+
+  let orderByClause = '';
+  switch (sortBy) {
+    case 'date_asc':
+      orderByClause = 'ORDER BY p.added_at ASC';
+      break;
+    case 'interactions_desc':
+      orderByClause = 'ORDER BY (answer_count + comment_count) DESC, p.added_at DESC';
+      break;
+    case 'interactions_asc':
+      orderByClause = 'ORDER BY (answer_count + comment_count) ASC, p.added_at DESC';
+      break;
+    case 'score_desc':
+      orderByClause = 'ORDER BY p.score DESC, p.added_at DESC';
+      break;
+    case 'score_asc':
+      orderByClause = 'ORDER BY p.score ASC, p.added_at DESC';
+      break;
+    default:
+      orderByClause = 'ORDER BY p.added_at DESC';
+  }
+
+  return { whereClause, orderByClause, params };
+};
+
+app.get("/api/posts", async (req, res) => {
   try {
     const page = parseInt(String(req.query.page)) || 1;
     const limit = parseInt(String(req.query.limit)) || 10;
+    const search = String(req.query.search || '');
+    const nodeType = (req.query.nodeType || 'all') as NodeType;
+    const sortBy = (req.query.sortBy || 'date_desc') as SortByValue;
     const offset = (page - 1) * limit;
 
-    // Updated query to correctly count answers and comments separately
+    const { whereClause, orderByClause, params } = buildQueryClauses(
+      search,
+      nodeType,
+      sortBy
+    );
+
     const [rows] = await pool.query<ForumPostRow[]>(
       `SELECT 
         p.id, 
@@ -58,26 +110,23 @@ app.get("/api/posts", async (req: Request, res: Response) => {
             AND (comments.state_string IS NULL OR comments.state_string != '(deleted)')
         ) as comment_count
       FROM forum_posts_raw p
-      WHERE p.node_type = 'question'
-        AND (p.state_string IS NULL OR p.state_string != '(deleted)')
+      ${whereClause}
       GROUP BY p.id, p.title, p.tagnames, p.body, p.node_type, p.added_at, p.score
-      ORDER BY p.added_at DESC 
+      ${orderByClause}
       LIMIT ? OFFSET ?`,
-      [limit, offset]
+      [...params, limit, offset]
     );
 
-    // Get total count of questions only
     const [countResult] = await pool.query<TotalCountRow[]>(
       `SELECT COUNT(*) as total 
-       FROM forum_posts_raw 
-       WHERE node_type = 'question'
-         AND (state_string IS NULL OR state_string != '(deleted)')`
+       FROM forum_posts_raw p
+       ${whereClause}`,
+      params
     );
 
     const total = countResult[0].total;
     const totalPages = Math.ceil(total / limit);
 
-    // Ensure counts are numbers
     const formattedRows = rows.map(row => ({
       ...row,
       answer_count: Number(row.answer_count),
@@ -88,7 +137,13 @@ app.get("/api/posts", async (req: Request, res: Response) => {
       data: formattedRows,
       total,
       page,
-      totalPages
+      totalPages,
+      filters: {
+        search,
+        nodeType: nodeType || 'all',
+        tags: []
+      },
+      sort: sortBy
     };
 
     res.json(response);
@@ -101,12 +156,10 @@ app.get("/api/posts", async (req: Request, res: Response) => {
   }
 });
 
-// Updated endpoint to get comments for a specific post
-app.get("/api/posts/:postId/comments", async (req: Request, res: Response) => {
+app.get("/api/posts/:postId/comments", async (req, res) => {
   try {
     const postId = req.params.postId;
     
-    // First, get the original post
     const [post] = await pool.query<ForumPostRow[]>(
       `SELECT id, title, tagnames, body, node_type, added_at, score 
        FROM forum_posts_raw 
@@ -118,7 +171,6 @@ app.get("/api/posts/:postId/comments", async (req: Request, res: Response) => {
       return res.status(404).json({ error: "Post not found" });
     }
 
-    // Get comments and answers using parent_id relationship
     const [comments] = await pool.query<CommentRow[]>(
       `SELECT 
         id,
