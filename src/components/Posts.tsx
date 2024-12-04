@@ -251,16 +251,66 @@ const SORT_OPTIONS = [
 ] as const;
 
 export const Posts: React.FC = () => {
-  const [posts, setPosts] = useState<ForumPost[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  // Group all useState hooks at the top
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [password, setPassword] = useState("");
+  const [passwordError, setPasswordError] = useState("");
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [search, setSearch] = useState('');
   const [sortBy, setSortBy] = useState<SortValue>('date_desc');
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [password, setPassword] = useState("");
-  const [passwordError, setPasswordError] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [posts, setPosts] = useState<ForumPost[]>([]);
+
+  // Define fetchPosts first since it's used in useEffect
+  const fetchPosts = useCallback(async (pageNumber: number, searchTerm: string) => {
+    setLoading(true);
+    setError(null);
+    
+    try {
+      const queryParams = new URLSearchParams({
+        page: pageNumber.toString(),
+        limit: '10',
+        search: searchTerm.trim(), // Trim whitespace from search
+        nodeType: 'question',
+        sortBy,
+      });
+
+      const response = await fetch(`http://localhost:5000/api/posts?${queryParams}`);
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      const data: ApiResponse<ForumPost[]> = await response.json();
+      setPosts(data.data);
+      setTotalPages(data.totalPages);
+    } catch (error) {
+      console.error('Error fetching posts:', error);
+      setError(error instanceof Error ? error.message : 'An error occurred');
+    } finally {
+      setLoading(false);
+    }
+  }, [sortBy]);
+
+  // useEffect hooks after fetchPosts is defined
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setPage(1);
+      fetchPosts(1, search);
+    }, 300); // 300ms debounce for search
+
+    return () => clearTimeout(timer);
+  }, [search, sortBy, fetchPosts]);
+
+  useEffect(() => {
+    if (page > 1) {
+      fetchPosts(page, search);
+    }
+  }, [page, search, fetchPosts]);
+
+  const handleSearchChange = (event: ChangeEvent<HTMLInputElement>) => {
+    setSearch(event.target.value);
+  };
 
   const handlePasswordSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -272,6 +322,7 @@ export const Posts: React.FC = () => {
     }
   };
 
+  // Password screen render
   if (!isAuthenticated) {
     return (
       <Box
@@ -312,53 +363,6 @@ export const Posts: React.FC = () => {
       </Box>
     );
   }
-
-  const fetchPosts = useCallback(async (pageNumber: number, searchTerm: string) => {
-    setLoading(true);
-    setError(null);
-    
-    try {
-      const queryParams = new URLSearchParams({
-        page: pageNumber.toString(),
-        limit: '10',
-        search: searchTerm.trim(), // Trim whitespace from search
-        nodeType: 'question',
-        sortBy,
-      });
-
-      const response = await fetch(`http://localhost:5000/api/posts?${queryParams}`);
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-      const data: ApiResponse<ForumPost[]> = await response.json();
-      setPosts(data.data);
-      setTotalPages(data.totalPages);
-    } catch (error) {
-      console.error('Error fetching posts:', error);
-      setError(error instanceof Error ? error.message : 'An error occurred');
-    } finally {
-      setLoading(false);
-    }
-  }, [sortBy]);
-
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      setPage(1);
-      fetchPosts(1, search);
-    }, 300); // 300ms debounce for search
-
-    return () => clearTimeout(timer);
-  }, [search, sortBy, fetchPosts]);
-
-  useEffect(() => {
-    if (page > 1) {
-      fetchPosts(page, search);
-    }
-  }, [page, search, fetchPosts]);
-
-  const handleSearchChange = (event: ChangeEvent<HTMLInputElement>) => {
-    setSearch(event.target.value);
-  };
 
   const handleSortChange = (event: SelectChangeEvent<SortValue>) => {
     setSortBy(event.target.value as SortValue);
