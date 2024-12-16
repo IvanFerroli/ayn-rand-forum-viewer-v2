@@ -25,34 +25,44 @@ import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
 import KeyboardArrowUpIcon from '@mui/icons-material/KeyboardArrowUp';
 import { ForumPost, Comment, ApiResponse, CommentsResponse, SortValue } from '../types';
 
+const BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000';
+
+const getTagsArray = (tagnames: string | undefined): string[] => {
+  return tagnames?.split(',').map(tag => tag.trim()) || [];
+};
+
+const useFetchComments = (postId: number) => {
+  const [comments, setComments] = useState<Comment[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  const fetchComments = useCallback(async () => {
+    setLoading(true);
+    try {
+      const response = await fetch(`${BASE_URL}/api/posts/${postId}/comments`);
+      if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+      const data: CommentsResponse = await response.json();
+      setComments(data.comments);
+    } catch (error) {
+      console.error('Error fetching comments:', error);
+    } finally {
+      setLoading(false);
+    }
+  }, [postId]);
+
+  return { comments, loading, fetchComments };
+};
+
 interface CommentProps {
   comment: Comment;
 }
 
 const CommentRow: React.FC<CommentProps> = React.memo(({ comment }) => {
+  const { comments: answers, loading, fetchComments: fetchAnswers } = useFetchComments(comment.id);
   const [open, setOpen] = useState(false);
-  const [answers, setAnswers] = useState<Comment[]>([]);
-  const [loading, setLoading] = useState(false);
 
-  const fetchAnswers = async () => {
-    if (!open) {
-      setOpen(true);
-      setLoading(true);
-      try {
-        const response = await fetch(`http://localhost:5000/api/posts/${comment.id}/comments`);
-        if (!response.ok) {
-          throw new Error(`HTTP error! status: ${response.status}`);
-        }
-        const data: CommentsResponse = await response.json();
-        setAnswers(data.comments.filter(c => c.node_type === 'answer'));
-      } catch (error) {
-        console.error('Error fetching answers:', error);
-      } finally {
-        setLoading(false);
-      }
-    } else {
-      setOpen(false);
-    }
+  const handleToggle = () => {
+    if (!open) fetchAnswers();
+    setOpen(!open);
   };
 
   return (
@@ -77,10 +87,13 @@ const CommentRow: React.FC<CommentProps> = React.memo(({ comment }) => {
           size="small"
           color={comment.score > 0 ? "success" : comment.score < 0 ? "error" : "default"}
         />
+        <Typography variant="caption" color="text.secondary">
+          By {comment.author_name || 'Unknown'}
+        </Typography>
         {comment.node_type === 'comment' && (
           <IconButton
             size="small"
-            onClick={fetchAnswers}
+            onClick={handleToggle}
             sx={{ ml: 'auto' }}
           >
             {open ? <KeyboardArrowUpIcon /> : <KeyboardArrowDownIcon />}
@@ -122,30 +135,15 @@ interface RowProps {
 }
 
 const Row: React.FC<RowProps> = React.memo(({ post }) => {
+  const { comments, loading, fetchComments } = useFetchComments(post.id);
   const [open, setOpen] = useState(false);
-  const [comments, setComments] = useState<Comment[]>([]);
-  const [loading, setLoading] = useState(false);
 
-  const fetchComments = async () => {
-    if (!open) {
-      setOpen(true);
-      setLoading(true);
-      try {
-        const response = await fetch(`http://localhost:5000/api/posts/${post.id}/comments`);
-        if (!response.ok) {
-          throw new Error(`HTTP error! status: ${response.status}`);
-        }
-        const data: CommentsResponse = await response.json();
-        setComments(data.comments);
-      } catch (error) {
-        console.error('Error fetching comments:', error);
-      } finally {
-        setLoading(false);
-      }
-    } else {
-      setOpen(false);
-    }
+  const handleToggle = () => {
+    if (!open) fetchComments();
+    setOpen(!open);
   };
+
+  const tags = getTagsArray(post.tagnames);
 
   return (
     <Paper elevation={2} sx={{ mb: 2, overflow: 'hidden' }}>
@@ -191,9 +189,12 @@ const Row: React.FC<RowProps> = React.memo(({ post }) => {
               <Typography variant="caption" color="text.secondary">
                 Posted on {new Date(post.added_at).toLocaleDateString()}
               </Typography>
-              {post.tags && post.tags.length > 0 && (
+              <Typography variant="caption" color="text.secondary">
+                Posted by {post.author_name || 'Unknown'}
+              </Typography>
+              {tags.length > 0 && (
                 <Stack direction="row" spacing={1}>
-                  {post.tags.map((tag) => (
+                  {tags.map((tag) => (
                     <Chip
                       key={tag}
                       label={tag}
@@ -207,7 +208,7 @@ const Row: React.FC<RowProps> = React.memo(({ post }) => {
               {(post.comment_count > 0 || post.answer_count > 0) && (
                 <IconButton
                   size="small"
-                  onClick={fetchComments}
+                  onClick={handleToggle}
                   sx={{ ml: 'auto' }}
                 >
                   {open ? <KeyboardArrowUpIcon /> : <KeyboardArrowDownIcon />}
@@ -251,7 +252,6 @@ const SORT_OPTIONS = [
 ] as const;
 
 export const Posts: React.FC = () => {
-  // Group all useState hooks at the top
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [password, setPassword] = useState("");
   const [passwordError, setPasswordError] = useState("");
@@ -263,7 +263,6 @@ export const Posts: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [posts, setPosts] = useState<ForumPost[]>([]);
 
-  // Define fetchPosts first since it's used in useEffect
   const fetchPosts = useCallback(async (pageNumber: number, searchTerm: string) => {
     setLoading(true);
     setError(null);
@@ -272,12 +271,12 @@ export const Posts: React.FC = () => {
       const queryParams = new URLSearchParams({
         page: pageNumber.toString(),
         limit: '10',
-        search: searchTerm.trim(), // Trim whitespace from search
+        search: searchTerm.trim(),
         nodeType: 'question',
         sortBy,
       });
 
-      const response = await fetch(`http://localhost:5000/api/posts?${queryParams}`);
+      const response = await fetch(`${BASE_URL}/api/posts?${queryParams}`);
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
@@ -292,12 +291,11 @@ export const Posts: React.FC = () => {
     }
   }, [sortBy]);
 
-  // useEffect hooks after fetchPosts is defined
   useEffect(() => {
     const timer = setTimeout(() => {
       setPage(1);
       fetchPosts(1, search);
-    }, 300); // 300ms debounce for search
+    }, 300);
 
     return () => clearTimeout(timer);
   }, [search, sortBy, fetchPosts]);
@@ -322,7 +320,6 @@ export const Posts: React.FC = () => {
     }
   };
 
-  // Password screen render
   if (!isAuthenticated) {
     return (
       <Box
@@ -393,7 +390,7 @@ export const Posts: React.FC = () => {
         <Stack 
           direction={{ xs: 'column', sm: 'row' }} 
           spacing={2} 
-          alignItems="center"
+          alignItems="stretch"
           justifyContent="space-between"
         >
           <TextField
@@ -467,10 +464,7 @@ export const Posts: React.FC = () => {
       ) : (
         <Paper elevation={1} sx={{ p: 4, textAlign: 'center' }}>
           <Typography variant="h6" color="text.secondary">
-            No questions found
-          </Typography>
-          <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-            Try adjusting your search
+            No questions found. Try searching with different keywords or adjusting filters.
           </Typography>
         </Paper>
       )}

@@ -2,22 +2,27 @@ export interface ForumPost {
   id: number;
   title: string;
   body: string;
-  score: number;
   node_type: string;
-  comment_count: number;
+  added_at: Date;
+  score: number;
+  parent_id: number | null;
   answer_count: number;
-  added_at: string;
-  tags: string[];
+  comment_count: number;
+  tagnames?: string; // Adiciona a propriedade opcional 'tagnames'
+  author_name?: string; // Adiciona a propriedade opcional 'author_name'
 }
+
 
 export interface Comment {
   id: number;
   body: string;
-  node_type: string;
-  added_at: string | Date;
+  added_at: Date;
   score: number;
   parent_id: number;
+  node_type: string;
+  author_name?: string; // Adiciona a propriedade opcional 'author_name'
 }
+
 
 // Updated to include all possible filter options
 export interface FilterOptions {

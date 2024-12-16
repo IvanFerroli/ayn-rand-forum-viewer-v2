@@ -9,8 +9,7 @@ import {
   CommentRow, 
   TotalCountRow,
   NodeType,
-  SortByValue,
-  QueryParams 
+  SortByValue
 } from "./types";
 
 dotenv.config();
@@ -21,6 +20,7 @@ app.use(express.json());
 
 const port = process.env.SERVER_PORT || 5000;
 
+// Endpoint: Busca de posts com nome do autor
 app.get("/api/posts", async (req, res) => {
   try {
     const page = parseInt(String(req.query.page)) || 1;
@@ -32,90 +32,56 @@ app.get("/api/posts", async (req, res) => {
 
     const query = `
       SELECT 
-        p.id, 
+        n.id, 
         CASE 
-          WHEN p.node_type = 'question' THEN p.title
-          WHEN p.node_type IN ('answer', 'comment') THEN 
+          WHEN n.node_type = 'question' THEN n.title
+          WHEN n.node_type IN ('answer', 'comment') THEN 
             CONCAT(
-              UPPER(SUBSTRING(p.node_type, 1, 1)), LOWER(SUBSTRING(p.node_type, 2)),
+              UPPER(SUBSTRING(n.node_type, 1, 1)), LOWER(SUBSTRING(n.node_type, 2)),
               ' to: ',
-              COALESCE((SELECT title FROM forum_posts_raw WHERE id = p.parent_id), 'Deleted Post')
+              COALESCE((SELECT title FROM forum_node WHERE id = n.parent_id), 'Deleted Post')
             )
-        END as title,
-        p.tagnames,
-        p.body,
-        p.node_type,
-        p.added_at,
-        p.score,
-        p.parent_id,
-        (SELECT COUNT(*) FROM forum_posts_raw WHERE parent_id = p.id AND node_type = 'answer' AND (state_string IS NULL OR state_string != '(deleted)')) as answer_count,
-        (SELECT COUNT(*) FROM forum_posts_raw WHERE parent_id = p.id AND node_type = 'comment' AND (state_string IS NULL OR state_string != '(deleted)')) as comment_count
-      FROM forum_posts_raw p
+        END AS title,
+        n.body,
+        n.node_type,
+        n.added_at,
+        n.score,
+        u.real_name AS author_name,
+        (SELECT COUNT(*) FROM forum_node WHERE parent_id = n.id AND node_type = 'answer') AS answer_count,
+        (SELECT COUNT(*) FROM forum_node WHERE parent_id = n.id AND node_type = 'comment') AS comment_count
+      FROM forum_node n
+      JOIN forum_user u ON n.author_id = u.user_ptr_id
       WHERE 
-        (p.state_string IS NULL OR p.state_string != '(deleted)')
-        AND (
-          ? = 'all' OR 
-          p.node_type = ?
-        )
-        AND (
-          ? = '' OR
-          LOWER(p.title) LIKE LOWER(CONCAT('%', ?, '%')) OR
-          LOWER(p.body) LIKE LOWER(CONCAT('%', ?, '%')) OR
-          LOWER(p.tagnames) LIKE LOWER(CONCAT('%', ?, '%'))
-        )
+        (n.node_type = ? OR ? = 'all')
+        AND (? = '' OR LOWER(n.title) LIKE LOWER(CONCAT('%', ?, '%')) OR LOWER(n.body) LIKE LOWER(CONCAT('%', ?, '%')))
       ORDER BY 
-        CASE WHEN ? = 'date_desc' THEN p.added_at END DESC,
-        CASE WHEN ? = 'date_asc' THEN p.added_at END ASC,
-        CASE WHEN ? = 'score_desc' THEN p.score END DESC,
-        CASE WHEN ? = 'score_asc' THEN p.score END ASC,
-        CASE WHEN ? = 'interactions_desc' THEN (
-          (SELECT COUNT(*) FROM forum_posts_raw WHERE parent_id = p.id AND node_type = 'answer' AND (state_string IS NULL OR state_string != '(deleted)')) +
-          (SELECT COUNT(*) FROM forum_posts_raw WHERE parent_id = p.id AND node_type = 'comment' AND (state_string IS NULL OR state_string != '(deleted)'))
-        ) END DESC,
-        CASE WHEN ? = 'interactions_asc' THEN (
-          (SELECT COUNT(*) FROM forum_posts_raw WHERE parent_id = p.id AND node_type = 'answer' AND (state_string IS NULL OR state_string != '(deleted)')) +
-          (SELECT COUNT(*) FROM forum_posts_raw WHERE parent_id = p.id AND node_type = 'comment' AND (state_string IS NULL OR state_string != '(deleted)'))
-        ) END ASC,
-        p.added_at DESC
+        CASE WHEN ? = 'date_desc' THEN n.added_at END DESC,
+        CASE WHEN ? = 'date_asc' THEN n.added_at END ASC,
+        CASE WHEN ? = 'score_desc' THEN n.score END DESC,
+        CASE WHEN ? = 'score_asc' THEN n.score END ASC
       LIMIT ? OFFSET ?`;
 
     const queryParams = [
       nodeType, nodeType,
-      search, search, search, search,
-      sortBy, sortBy, sortBy, sortBy, sortBy, sortBy,
+      search, search, search,
+      sortBy, sortBy, sortBy, sortBy,
       limit, offset
     ];
 
     const [rows] = await pool.query<ForumPostRow[]>(query, queryParams);
 
-    // Get total count for pagination
+    // Contagem total
     const countQuery = `
-      SELECT COUNT(*) as total 
-      FROM forum_posts_raw p
+      SELECT COUNT(*) AS total
+      FROM forum_node n
       WHERE 
-        (p.state_string IS NULL OR p.state_string != '(deleted)')
-        AND (
-          ? = 'all' OR 
-          p.node_type = ?
-        )
-        AND (
-          ? = '' OR
-          LOWER(p.title) LIKE LOWER(CONCAT('%', ?, '%')) OR
-          LOWER(p.body) LIKE LOWER(CONCAT('%', ?, '%')) OR
-          LOWER(p.tagnames) LIKE LOWER(CONCAT('%', ?, '%'))
-        )`;
+        (n.node_type = ? OR ? = 'all')
+        AND (? = '' OR LOWER(n.title) LIKE LOWER(CONCAT('%', ?, '%')) OR LOWER(n.body) LIKE LOWER(CONCAT('%', ?, '%')))
+    `;
+    const countParams = [nodeType, nodeType, search, search, search];
+    const [countResult] = await pool.query<TotalCountRow[]>(countQuery, countParams);
 
-    const countParams = [
-      nodeType, nodeType,
-      search, search, search, search
-    ];
-
-    const [countResult] = await pool.query<TotalCountRow[]>(
-      countQuery,
-      countParams
-    );
-
-    const total = countResult[0].total;
+    const total = countResult[0]?.total || 0;
     const totalPages = Math.ceil(total / limit);
 
     const response: ApiResponse<ForumPost[]> = {
@@ -127,82 +93,52 @@ app.get("/api/posts", async (req, res) => {
       total,
       page,
       totalPages,
-      filters: {
-        search,
-        nodeType,
-        tags: []
-      },
+      filters: { search, nodeType, tags: [] },
       sort: sortBy
     };
 
     res.json(response);
   } catch (error) {
     console.error("Error fetching posts:", error);
-    res.status(500).json({ 
-      error: "Internal server error", 
-      details: error instanceof Error ? error.message : String(error)
-    });
+    res.status(500).json({ error: "Internal server error" });
   }
 });
 
+// Endpoint: Comentários de um post específico
 app.get("/api/posts/:postId/comments", async (req, res) => {
   try {
     const postId = req.params.postId;
-    
-    const [post] = await pool.query<ForumPostRow[]>(
-      `SELECT id, title, tagnames, body, node_type, added_at, score 
-       FROM forum_posts_raw 
-       WHERE id = ? AND node_type = 'question'`,
-      [postId]
-    );
-
-    if (!post[0]) {
-      return res.status(404).json({ error: "Post not found" });
-    }
 
     const [comments] = await pool.query<CommentRow[]>(
       `SELECT 
-        id,
-        body,
-        node_type,
-        added_at,
-        score,
-        parent_id
-      FROM forum_posts_raw
-      WHERE parent_id = ?
-        AND node_type IN ('comment', 'answer')
-        AND (state_string IS NULL OR state_string != '(deleted)')
+        n.id,
+        n.body,
+        n.node_type,
+        n.added_at,
+        n.score,
+        n.parent_id,
+        u.real_name AS author_name
+      FROM forum_node n
+      JOIN forum_user u ON n.author_id = u.user_ptr_id
+      WHERE n.parent_id = ?
+        AND n.node_type IN ('comment', 'answer')
       ORDER BY 
-        CASE node_type
+        CASE n.node_type 
           WHEN 'answer' THEN 1
           WHEN 'comment' THEN 2
-          ELSE 3
         END,
-        score DESC,
-        added_at ASC`,
+        n.score DESC,
+        n.added_at ASC`,
       [postId]
     );
 
-    res.json({ 
-      comments,
-      post: post[0]
-    });
+    res.json({ comments });
   } catch (error) {
     console.error("Error fetching comments:", error);
-    res.status(500).json({ 
-      error: "Internal server error", 
-      details: error instanceof Error ? error.message : String(error)
-    });
+    res.status(500).json({ error: "Internal server error" });
   }
 });
 
 app.listen(port, () => {
-  console.log(`Server running on port ${port}`);
-  console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
-});
-
-process.on('SIGTERM', async () => {
-  console.log('SIGTERM received. Closing database pool...');
-  await pool.end();
-  process.exit(0);
+  console.log(`Server running on http://localhost:${port}`);
 });
