@@ -25,7 +25,7 @@ import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
 import KeyboardArrowUpIcon from '@mui/icons-material/KeyboardArrowUp';
 import { ForumPost, Comment, ApiResponse, CommentsResponse, SortValue } from '../types';
 
-const BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000';
+const BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:5001';
 
 const getTagsArray = (tagnames: string | undefined): string[] => {
   return tagnames?.split(',').map(tag => tag.trim()) || [];
@@ -312,7 +312,7 @@ export const Posts: React.FC = () => {
 
   const handlePasswordSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (password === "ARIFV-2024*") {
+    if (password === "https://objectivistanswers.org/old-oa/") {
       setIsAuthenticated(true);
       setPasswordError("");
     } else {
