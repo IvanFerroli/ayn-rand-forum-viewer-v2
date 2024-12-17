@@ -15,13 +15,19 @@ import {
 dotenv.config();
 
 const app = express();
-app.use(cors());
+app.use(cors({
+  origin: ['http://localhost:3000', 'http://localhost:5001'],
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+}));
 app.use(express.json());
 
 const port = process.env.SERVER_PORT || 5001;
 
 // API Routes
 const router = express.Router();
+
+app.use('/api', router);
 
 // Get posts with filters and pagination
 router.get("/posts", async (req, res) => {

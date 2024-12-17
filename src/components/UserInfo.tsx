@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+const BASE_URL = process.env.REACT_APP_API_URL || '/old-oa-2';
 
 interface UserInfoProps {
   userId: number; // ID do usuário a ser buscado
@@ -25,7 +26,7 @@ const UserInfo: React.FC<UserInfoProps> = ({ userId }) => {
         setLoading(true);
 
         // Fetch do endpoint que traz os dados do usuário
-        const response = await fetch(`/api/users/${userId}`);
+        const response = await fetch(`${BASE_URL}/api/users/${userId}`);
         if (!response.ok) throw new Error("Failed to fetch user data");
 
         const data: UserData = await response.json();
