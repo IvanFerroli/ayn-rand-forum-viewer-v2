@@ -1,5 +1,6 @@
+import { BASE_URL } from '../apiConfig';
+
 import React, { useEffect, useState } from "react";
-const BASE_URL = process.env.REACT_APP_API_URL || '/old-oa-2';
 
 interface UserInfoProps {
   userId: number; // ID do usuário a ser buscado

@@ -1,3 +1,4 @@
+import { BASE_URL } from '../apiConfig';
 import React, { useEffect, useState, ChangeEvent, useCallback } from 'react';
 import { 
   Box,
@@ -25,7 +26,6 @@ import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
 import KeyboardArrowUpIcon from '@mui/icons-material/KeyboardArrowUp';
 import { ForumPost, Comment, ApiResponse, CommentsResponse, SortValue } from '../types';
 
-const BASE_URL = process.env.REACT_APP_API_URL || '/old-oa-2';
 
 const getTagsArray = (tagnames: string | undefined): string[] => {
   return tagnames?.split(',').map(tag => tag.trim()) || [];
@@ -38,7 +38,7 @@ const useFetchComments = (postId: number) => {
   const fetchComments = useCallback(async () => {
     setLoading(true);
     try {
-      const response = await fetch(`${BASE_URL}/api/posts/${postId}/comments`);
+      const response = await fetch(`${BASE_URL}/posts/${postId}/comments`);
       if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
       const data: CommentsResponse = await response.json();
       setComments(data.comments);
