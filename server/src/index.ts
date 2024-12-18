@@ -26,7 +26,6 @@ const port = process.env.SERVER_PORT || 5001;
 
 // API Routes
 const router = express.Router();
-
 app.use('/api', router);
 
 // Get posts with filters and pagination
@@ -55,12 +54,11 @@ router.get("/posts", async (req, res) => {
         n.node_type,
         n.added_at,
         n.score,
-        n.tagnames,
-        u.real_name AS author_name,
+        COALESCE(u.real_name, 'Unknown') AS author_name,
         (SELECT COUNT(*) FROM forum_node WHERE parent_id = n.id AND node_type = 'answer' AND state_string != '(deleted)') AS answer_count,
         (SELECT COUNT(*) FROM forum_node WHERE parent_id = n.id AND node_type = 'comment' AND state_string != '(deleted)') AS comment_count
       FROM forum_node n
-      JOIN forum_user u ON n.author_id = u.user_ptr_id
+      LEFT JOIN forum_user u ON n.author_id = u.user_ptr_id
       WHERE 
         n.state_string != '(deleted)'
         AND (n.node_type = ? OR ? = 'all')
@@ -76,12 +74,10 @@ router.get("/posts", async (req, res) => {
         CASE WHEN ? = 'score_desc' THEN n.score END DESC,
         CASE WHEN ? = 'score_asc' THEN n.score END ASC,
         CASE WHEN ? = 'interactions_desc' THEN (
-          (SELECT COUNT(*) FROM forum_node WHERE parent_id = n.id AND node_type = 'answer' AND state_string != '(deleted)') +
-          (SELECT COUNT(*) FROM forum_node WHERE parent_id = n.id AND node_type = 'comment' AND state_string != '(deleted)')
+          (SELECT COUNT(*) FROM forum_node WHERE parent_id = n.id AND node_type IN ('answer', 'comment'))
         ) END DESC,
         CASE WHEN ? = 'interactions_asc' THEN (
-          (SELECT COUNT(*) FROM forum_node WHERE parent_id = n.id AND node_type = 'answer' AND state_string != '(deleted)') +
-          (SELECT COUNT(*) FROM forum_node WHERE parent_id = n.id AND node_type = 'comment' AND state_string != '(deleted)')
+          (SELECT COUNT(*) FROM forum_node WHERE parent_id = n.id AND node_type IN ('answer', 'comment'))
         ) END ASC
       LIMIT ? OFFSET ?`;
 
@@ -105,8 +101,8 @@ router.get("/posts", async (req, res) => {
           LOWER(n.title) LIKE LOWER(CONCAT('%', ?, '%')) OR 
           LOWER(n.body) LIKE LOWER(CONCAT('%', ?, '%')) OR
           LOWER(n.tagnames) LIKE LOWER(CONCAT('%', ?, '%'))
-        )
-    `;
+        )`;
+
     const countParams = [nodeType, nodeType, search, search, search, search];
     const [countResult] = await pool.query<TotalCountRow[]>(countQuery, countParams);
 
@@ -129,10 +125,7 @@ router.get("/posts", async (req, res) => {
     res.json(response);
   } catch (error) {
     console.error("Error fetching posts:", error);
-    res.status(500).json({ 
-      error: "Internal server error", 
-      details: error instanceof Error ? error.message : String(error)
-    });
+    res.status(500).json({ error: "Internal server error", details: error instanceof Error ? error.message : String(error) });
   }
 });
 
@@ -140,28 +133,6 @@ router.get("/posts", async (req, res) => {
 router.get("/posts/:postId/comments", async (req, res) => {
   try {
     const postId = req.params.postId;
-    
-    const [post] = await pool.query<ForumPostRow[]>(`
-      SELECT 
-        n.id, 
-        n.title, 
-        n.tagnames, 
-        n.body, 
-        n.node_type, 
-        n.added_at, 
-        n.score,
-        u.real_name AS author_name
-      FROM forum_node n
-      JOIN forum_user u ON n.author_id = u.user_ptr_id
-      WHERE n.id = ? 
-        AND n.node_type = 'question'
-        AND n.state_string != '(deleted)'`, 
-      [postId]
-    );
-
-    if (!post[0]) {
-      return res.status(404).json({ error: "Post not found" });
-    }
 
     const [comments] = await pool.query<CommentRow[]>(`
       SELECT 
@@ -171,38 +142,22 @@ router.get("/posts/:postId/comments", async (req, res) => {
         n.added_at, 
         n.score, 
         n.parent_id,
-        u.real_name AS author_name
+        COALESCE(u.real_name, 'Unknown') AS author_name
       FROM forum_node n
-      JOIN forum_user u ON n.author_id = u.user_ptr_id
-      WHERE n.parent_id = ? 
+      LEFT JOIN forum_user u ON n.author_id = u.user_ptr_id
+      WHERE n.parent_id = ?
         AND n.node_type IN ('comment', 'answer')
         AND n.state_string != '(deleted)'
-      ORDER BY 
-        CASE n.node_type 
-          WHEN 'answer' THEN 1 
-          WHEN 'comment' THEN 2 
-          ELSE 3 
-        END,
-        n.score DESC,
-        n.added_at ASC`, 
+      ORDER BY n.node_type ASC, n.score DESC, n.added_at ASC`, 
       [postId]
     );
 
-    return res.json({ 
-      comments,
-      post: post[0]
-    });
+    return res.json({ comments });
   } catch (error) {
     console.error("Error fetching comments:", error);
-    return res.status(500).json({ 
-      error: "Internal server error", 
-      details: error instanceof Error ? error.message : String(error)
-    });
+    return res.status(500).json({ error: "Internal server error", details: error instanceof Error ? error.message : String(error) });
   }
 });
-
-// Use /api prefix for all routes
-app.use("/api", router);
 
 app.listen(port, () => {
   console.log(`Server running on port ${port}`);

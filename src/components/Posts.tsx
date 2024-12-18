@@ -37,15 +37,18 @@ const useFetchComments = (postId: number) => {
   const [loading, setLoading] = useState(false);
 
   const fetchComments = useCallback(async () => {
-    console.log(`Fetching comments for postId: ${postId}`); // Log do ID do post
     setLoading(true);
     try {
-      const response = await fetch(`${BASE_URL}/api/posts/${postId}/comments`); // Corrigi a rota
-      console.log(`Response status: ${response.status}`); // Log do status da resposta
+      console.log(`Fetching comments for postId: ${postId}`);
+      const response = await fetch(`${BASE_URL}/api/posts/${postId}/comments`);
+      if (response.status === 404) {
+        console.warn(`No comments found for postId: ${postId}`);
+        setComments([]); // Define vazio se não tiver comentários
+        return;
+      }
       if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-
       const data: CommentsResponse = await response.json();
-      console.log('Fetched comments data:', data); // Log dos dados retornados
+      console.log('Fetched comments data:', data);
       setComments(data.comments);
     } catch (error) {
       console.error('Error fetching comments:', error);
