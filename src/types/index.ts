@@ -21,6 +21,7 @@ export interface Comment {
   parent_id: number;
   node_type: string;
   author_name?: string; // Adiciona a propriedade opcional 'author_name'
+  user_id?: number;
 }
 
 

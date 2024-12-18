@@ -1,6 +1,7 @@
+import UserInfo from './UserInfo';
 import { BASE_URL } from '../apiConfig';
 import React, { useEffect, useState, ChangeEvent, useCallback } from 'react';
-import { 
+import {
   Box,
   Paper,
   Typography,
@@ -36,11 +37,15 @@ const useFetchComments = (postId: number) => {
   const [loading, setLoading] = useState(false);
 
   const fetchComments = useCallback(async () => {
+    console.log(`Fetching comments for postId: ${postId}`); // Log do ID do post
     setLoading(true);
     try {
-      const response = await fetch(`${BASE_URL}/posts/${postId}/comments`);
+      const response = await fetch(`${BASE_URL}/api/posts/${postId}/comments`); // Corrigi a rota
+      console.log(`Response status: ${response.status}`); // Log do status da resposta
       if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+
       const data: CommentsResponse = await response.json();
+      console.log('Fetched comments data:', data); // Log dos dados retornados
       setComments(data.comments);
     } catch (error) {
       console.error('Error fetching comments:', error);
@@ -48,6 +53,10 @@ const useFetchComments = (postId: number) => {
       setLoading(false);
     }
   }, [postId]);
+
+  useEffect(() => {
+    fetchComments();
+  }, [fetchComments]);
 
   return { comments, loading, fetchComments };
 };
@@ -61,7 +70,10 @@ const CommentRow: React.FC<CommentProps> = React.memo(({ comment }) => {
   const [open, setOpen] = useState(false);
 
   const handleToggle = () => {
-    if (!open) fetchAnswers();
+    if (!open) {
+      console.log(`Fetching nested comments for commentId: ${comment.id}`); // Log de nested comments
+      fetchAnswers();
+    }
     setOpen(!open);
   };
 
@@ -71,35 +83,34 @@ const CommentRow: React.FC<CommentProps> = React.memo(({ comment }) => {
       sx={{
         p: 2,
         bgcolor: 'background.paper',
-        borderLeft: (theme) => `4px solid ${
-          comment.node_type === 'answer' 
-            ? theme.palette.success.main
-            : theme.palette.grey[300]
-        }`
+        borderLeft: (theme) =>
+          `4px solid ${comment.node_type === 'answer' ? theme.palette.success.main : theme.palette.grey[300]}`
       }}
     >
       <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1 }}>
         <Typography variant="body2" sx={{ fontWeight: 500 }}>
-          {comment.node_type === 'answer' ? ' Answer' : ' Comment'}
+          {comment.node_type === 'answer' ? 'Answer' : 'Comment'}
         </Typography>
-        <Chip 
+        <Chip
           label={`Score: ${comment.score}`}
           size="small"
-          color={comment.score > 0 ? "success" : comment.score < 0 ? "error" : "default"}
+          color={comment.score > 0 ? 'success' : comment.score < 0 ? 'error' : 'default'}
         />
         <Typography variant="caption" color="text.secondary">
-          By {comment.author_name || 'Unknown'}
+          By {comment.author_name
+            ? comment.author_name
+            : comment.user_id !== undefined
+              ? <UserInfo userId={comment.user_id} />
+              : 'Unknown'}
         </Typography>
+
         {comment.node_type === 'comment' && (
-          <IconButton
-            size="small"
-            onClick={handleToggle}
-            sx={{ ml: 'auto' }}
-          >
+          <IconButton size="small" onClick={handleToggle} sx={{ ml: 'auto' }}>
             {open ? <KeyboardArrowUpIcon /> : <KeyboardArrowDownIcon />}
           </IconButton>
         )}
       </Stack>
+
       <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap' }}>
         {comment.body}
       </Typography>
@@ -151,36 +162,36 @@ const Row: React.FC<RowProps> = React.memo(({ post }) => {
         <Stack direction="row" justifyContent="space-between" alignItems="flex-start">
           <Stack direction="column" spacing={1} sx={{ flex: 1 }}>
             <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
-              <Typography 
-                variant="body1" 
+              <Typography
+                variant="body1"
                 color="primary.main"
                 sx={{ fontWeight: 500 }}
               >
                 ❓ Question
               </Typography>
-              <Chip 
+              <Chip
                 label={`Score: ${post.score}`}
                 size="small"
                 color={post.score > 0 ? "success" : post.score < 0 ? "error" : "default"}
               />
               <Stack direction="row" spacing={1}>
-                <Chip 
+                <Chip
                   label={`${post.answer_count} answer${post.answer_count !== 1 ? 's' : ''}`}
                   size="small"
                   color="success"
                 />
-                <Chip 
+                <Chip
                   label={`${post.comment_count} comment${post.comment_count !== 1 ? 's' : ''}`}
                   size="small"
                   color="info"
                 />
               </Stack>
             </Stack>
-            
+
             <Typography variant="h6" sx={{ mt: 1 }}>
               {post.title || 'Untitled Question'}
             </Typography>
-            
+
             <Typography variant="body1" color="text.secondary" sx={{ whiteSpace: 'pre-wrap' }}>
               {post.body}
             </Typography>
@@ -190,8 +201,11 @@ const Row: React.FC<RowProps> = React.memo(({ post }) => {
                 Posted on {new Date(post.added_at).toLocaleDateString()}
               </Typography>
               <Typography variant="caption" color="text.secondary">
-                Posted by {post.author_name || 'Unknown'}
+                Posted by {post.author_name && post.author_name.trim() !== ''
+                  ? post.author_name
+                  : 'Unknown'}
               </Typography>
+
               {tags.length > 0 && (
                 <Stack direction="row" spacing={1}>
                   {tags.map((tag) => (
@@ -266,7 +280,7 @@ export const Posts: React.FC = () => {
   const fetchPosts = useCallback(async (pageNumber: number, searchTerm: string) => {
     setLoading(true);
     setError(null);
-    
+
     try {
       const queryParams = new URLSearchParams({
         page: pageNumber.toString(),
@@ -387,9 +401,9 @@ export const Posts: React.FC = () => {
       </Typography>
 
       <Paper elevation={1} sx={{ p: 2, mb: 3 }}>
-        <Stack 
-          direction={{ xs: 'column', sm: 'row' }} 
-          spacing={2} 
+        <Stack
+          direction={{ xs: 'column', sm: 'row' }}
+          spacing={2}
           alignItems="stretch"
           justifyContent="space-between"
         >
@@ -450,7 +464,7 @@ export const Posts: React.FC = () => {
               <Row key={post.id} post={post} />
             ))}
           </Stack>
-          
+
           <Box sx={{ mt: 4, display: 'flex', justifyContent: 'center' }}>
             <Pagination
               count={totalPages}

@@ -54,7 +54,8 @@ export interface Comment {
   score: number;
   parent_id: number;
   node_type: string;
-  author_name?: string; // Adiciona a propriedade opcional 'author_name'
+  author_name?: string;
+  user_id?: number; // Adiciona a propriedade opcional 'author_name'
 }
 
 // Interface para as linhas retornadas de comentários no banco de dados
