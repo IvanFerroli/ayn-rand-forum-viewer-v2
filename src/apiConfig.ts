@@ -6,7 +6,7 @@ export const API_CONFIG = {
     },
     // Production environment
     production: {
-      baseUrl: '/old-oa-2'
+      baseUrl: '/old-oa'
     }
   };
   
@@ -14,4 +14,4 @@ const isDevelopment = process.env.NODE_ENV === 'development';
 
 export const BASE_URL = isDevelopment 
     ? 'http://localhost:5001/api'
-    : '/old-oa-2';
+    : '/old-oa';

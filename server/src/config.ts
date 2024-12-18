@@ -1,5 +1,5 @@
 // Base URL for API requests
-export const API_BASE_URL = '/old-oa-2/api';
+export const API_BASE_URL = '/old-oa/api';
 
 // API endpoints
 export const API_ENDPOINTS = {
